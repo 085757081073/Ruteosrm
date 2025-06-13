@@ -18,7 +18,6 @@
   <div id="map"></div>
 
   <script>
-    const apiKey = 'YOUR_ORS_API_KEY'; // GANTI DENGAN ORS API KEY
     const urlParams = new URLSearchParams(window.location.search);
 
     function getLatLngFromParam(param) {
@@ -28,10 +27,16 @@
       return parts.length === 2 && parts.every(x => !isNaN(x)) ? [parts[0], parts[1]] : null;
     }
 
-    const originLatLng = getLatLngFromParam('from') || [1.5649439, 124.8745422];
-    const destinationLatLng = getLatLngFromParam('to') || [1.4870958, 124.8369521];
+    const originLatLng = getLatLngFromParam('from');
+    const destinationLatLng = getLatLngFromParam('to');
     const orderLatLng = getLatLngFromParam('order');
+    const token = urlParams.get('token');
     const vehicle = urlParams.get('vehicle') || 'mobil';
+
+    if (!originLatLng || !destinationLatLng || !token) {
+      alert('Parameter from, to, dan token wajib ada di URL');
+      throw new Error('Parameter kurang');
+    }
 
     const iconUrls = {
       motor: 'https://cdn-icons-png.flaticon.com/128/5811/5811823.png',
@@ -39,8 +44,10 @@
       kurir: 'https://cdn-icons-png.flaticon.com/128/9561/9561688.png',
     };
 
+    const iconUrl = iconUrls[vehicle] || iconUrls['mobil'];
+
     const vehicleIcon = L.icon({
-      iconUrl: iconUrls[vehicle] || iconUrls['mobil'],
+      iconUrl: iconUrl,
       iconSize: [40, 40],
       iconAnchor: [20, 20],
       popupAnchor: [0, -20],
@@ -48,28 +55,25 @@
 
     const map = L.map('map');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19
+      maxZoom: 18,
+      attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
     map.fitBounds([originLatLng, destinationLatLng], { padding: [50, 50] });
 
-    // Fungsi hitung jarak (haversine) dalam km
     function calculateCircleDistance(lat1, lon1, lat2, lon2) {
       const R = 6371;
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) *
-        Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) *
+                Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     }
 
-    async function getORSRoute() {
-      const url = 'https://api.openrouteservice.org/v2/directions/driving-car/geojson';
+    async function getRouteORS() {
       const body = {
         coordinates: [
           [originLatLng[1], originLatLng[0]],
@@ -78,52 +82,52 @@
       };
 
       try {
-        const response = await fetch(url, {
+        const response = await fetch('https://api.openrouteservice.org/v2/directions/driving-car/geojson', {
           method: 'POST',
           headers: {
-            'Authorization': apiKey,
+            'Authorization': token,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(body)
         });
 
-        if (!response.ok) throw new Error('Gagal mengambil rute');
+        if (!response.ok) throw new Error('Gagal ambil rute');
 
-        const json = await response.json();
-        const geometry = json.features[0].geometry;
-        const jarakAB = json.features[0].properties.summary.distance / 1000;
+        const data = await response.json();
+        const distance = data.features[0].properties.summary.distance / 1000;
 
-        L.geoJSON(geometry, { style: { color: '#FF0000', weight: 5 } }).addTo(map);
+        L.geoJSON(data, {
+          style: { color: '#FF0000', weight: 5 }
+        }).addTo(map);
 
-        // Titik A (Penjemputan)
         const markerA = L.marker(originLatLng, { icon: vehicleIcon }).addTo(map);
-
         let popupA = '';
         if (orderLatLng) {
-          const jarakOrder = calculateCircleDistance(
+          const jarakPengorder = calculateCircleDistance(
             originLatLng[0], originLatLng[1],
             orderLatLng[0], orderLatLng[1]
           );
-          popupA += jarakOrder < 1
-            ? `${(jarakOrder * 1000).toFixed(0)} meter`
-            : `${jarakOrder.toFixed(2)} km`;
+          popupA += (
+            jarakPengorder < 1
+              ? `${(jarakPengorder * 1000).toFixed(0)} meter`
+              : `${jarakPengorder.toFixed(2)} km`
+          );
         }
         markerA.bindPopup(popupA).openPopup();
 
-        // Titik B (Tujuan)
         const markerB = L.marker(destinationLatLng).addTo(map);
-        const popupB = jarakAB < 1
-          ? `${(jarakAB * 1000).toFixed(0)} meter`
-          : `${jarakAB.toFixed(2)} km`;
+        let popupB = distance < 1
+          ? `${(distance * 1000).toFixed(0)} meter`
+          : `${distance.toFixed(2)} km`;
         markerB.bindPopup(popupB);
 
       } catch (err) {
-        alert(err.message);
+        alert('Terjadi kesalahan saat mengambil rute: ' + err.message);
         console.error(err);
       }
     }
 
-    getORSRoute();
+    getRouteORS();
   </script>
 </body>
 </html>
